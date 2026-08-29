@@ -11,7 +11,7 @@ out/
 # 环境与本地状态
 .env
 .env.local
-mock-state.json
+.mock-state.json
 
 # 系统杂项
 Thumbs.db
