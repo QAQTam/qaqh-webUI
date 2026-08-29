@@ -17,7 +17,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RINGING_SCHEMA, RINGING_VERSION, type ContentRef, type MessageItem, type SessionSummary, type TimelineItem, type ToolItem } from '../src/protocol/types';
+import { RINGING_SCHEMA, RINGING_VERSION, type ContentRef, type MessageItem, type SessionSummary, type TimelineItem, type ToolItem } from '../src/protocol/types.ts';
 
 type NewTimelineItem = Omit<MessageItem, 'seq'> | Omit<ToolItem, 'seq'>;
 
@@ -710,11 +710,16 @@ export function mockDaemon(): Plugin {
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        void handle(req as IncomingMessage, res as ServerResponse).catch((err: unknown) => {
-          if (!(res as ServerResponse).headersSent) {
-            json(res as ServerResponse, 500, { error: 'internal', message: String(err) });
-          }
-        });
+        const url = req.url ?? '';
+        // 仅接管协议端点与桥脚本；其余交还 vite（静态资源 / SPA）
+        if (url.startsWith('/ringing/') || url.startsWith('/__qaqh_bridge__.js')) {
+          void handle(req as IncomingMessage, res as ServerResponse).catch((err: unknown) => {
+            if (!(res as ServerResponse).headersSent) {
+              json(res as ServerResponse, 500, { error: 'internal', message: String(err) });
+            }
+          });
+          return; // 已接管，绝不调用 next（避免 SPA fallback 抢答）
+        }
         next();
       });
     },

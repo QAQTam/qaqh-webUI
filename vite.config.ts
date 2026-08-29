@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { mockDaemon } from './mocks/mock-daemon-plugin';
+import { mockDaemon } from './mocks/mock-daemon-plugin.ts';
 
 // QAQH_DEV_DAEMON=http://127.0.0.1:PORT 时走真实 daemon（/ringing 与桥脚本代理），
 // 否则默认启用内置 mock daemon（mocks/mock-daemon-plugin.ts），便于无后端开发与冒烟。

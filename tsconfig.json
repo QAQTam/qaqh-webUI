@@ -11,6 +11,7 @@
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "useDefineForClassFields": true,
     "skipLibCheck": true,
     "noEmit": true,

@@ -20,6 +20,11 @@ export type ReadMethodName = (typeof READ_METHODS)[keyof typeof READ_METHODS];
 export type WriteMethodName = (typeof WRITE_METHODS)[keyof typeof WRITE_METHODS];
 export type ServiceMethodName = ReadMethodName | WriteMethodName;
 
+/** 仅内置 mock daemon 支持（用于开发期演示 epoch 重置），真实后端返回 404 */
+export const DEV_ONLY_METHODS = {
+  debugResetEpoch: 'debug.reset_epoch',
+} as const;
+
 /** Read 方法错误码为 query_failed，Write 为 action_failed */
 export function isReadMethod(m: ServiceMethodName): boolean {
   return Object.values(READ_METHODS).includes(m as ReadMethodName);

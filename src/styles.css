@@ -1,0 +1,499 @@
+/*
+ * 全局布局样式：仅做壳层布局与内容排版。
+ * 颜色/圆角/字体一律消费 FluentProvider 注入的 v9 设计令牌 CSS 变量，
+ * 控件本身全部来自 @fluentui/react-components（v9）。
+ */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--fontFamilyBase);
+  color: var(--colorNeutralForeground1);
+  background: var(--colorNeutralBackground1);
+  overflow: hidden;
+}
+
+.app-root {
+  height: 100%;
+}
+
+.app-shell {
+  display: flex;
+  height: 100%;
+}
+
+/* ------------------------------ 侧栏 ------------------------------ */
+
+.sidebar {
+  width: 304px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--colorNeutralStroke1);
+  background: var(--colorNeutralBackground2);
+  min-height: 0;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 8px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--colorBrandBackground);
+  color: var(--colorNeutralForegroundOnBrand);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 12px 8px;
+}
+
+.conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px 8px;
+  min-height: 0;
+}
+
+.conv-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--borderRadiusMedium);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conv-item:hover {
+  background: var(--colorNeutralBackground2Hover);
+}
+
+.conv-item.active {
+  background: var(--colorNeutralBackground4);
+}
+
+.conv-item .conv-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.conv-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.conv-meta {
+  font-size: 11px;
+  color: var(--colorNeutralForeground3);
+}
+
+.conv-item .conv-menu {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  flex: none;
+}
+
+.conv-item:hover .conv-menu,
+.conv-item:focus-within .conv-menu,
+.conv-item.menu-open .conv-menu {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidebar-footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--colorNeutralStroke1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ------------------------------ 主区 ------------------------------ */
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--colorNeutralStroke1);
+  min-height: 52px;
+}
+
+.chat-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+  min-height: 0;
+}
+
+.chat-scroll-inner {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 20px 24px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.msg-row {
+  display: flex;
+}
+
+.msg-row.user {
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: min(76%, 780px);
+  border-radius: var(--borderRadiusLarge);
+  padding: 10px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  font-size: 14px;
+}
+
+.bubble.user {
+  background: var(--colorBrandBackground2);
+  border-bottom-right-radius: 4px;
+}
+
+.bubble.assistant {
+  background: var(--colorNeutralBackground3);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble .msg-meta {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--colorNeutralForeground3);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.bubble.streaming::after {
+  content: '▍';
+  margin-left: 2px;
+  animation: blink 1s steps(2, start) infinite;
+  color: var(--colorBrandForeground1);
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground4);
+  border: 1px solid var(--colorNeutralStroke2);
+}
+
+/* ------------------------------ 工具卡片 ------------------------------ */
+
+.tool-card-wrap {
+  display: flex;
+}
+
+.tool-card {
+  max-width: min(76%, 780px);
+  padding: 0;
+}
+
+.tool-card-body {
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tool-card pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground4);
+  border: 1px solid var(--colorNeutralStroke2);
+  font-family: var(--fontFamilyMonospace);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+}
+
+.tool-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-kv-label {
+  font-size: 11px;
+  color: var(--colorNeutralForeground3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ------------------------------ 输入区 ------------------------------ */
+
+.composer-wrap {
+  border-top: 1px solid var(--colorNeutralStroke1);
+  padding: 12px 24px 14px;
+  background: var(--colorNeutralBackground1);
+}
+
+.composer-inner {
+  max-width: 980px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--borderRadiusLarge);
+  border: 1px solid var(--colorNeutralStroke1);
+  background: var(--colorNeutralBackground1);
+  transition: border-color 0.15s ease;
+}
+
+.composer:focus-within {
+  border-color: var(--colorBrandStroke1);
+}
+
+.composer .composer-textarea {
+  flex: 1;
+  background: transparent;
+}
+
+.composer-hints {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--colorNeutralForeground3);
+  padding: 0 4px;
+}
+
+/* ------------------------------ 浮动元素 ------------------------------ */
+
+.jump-btn {
+  position: absolute;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+}
+
+.chat-main {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.load-older {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 0;
+}
+
+.empty-state {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--colorNeutralForeground3);
+}
+
+.empty-state-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  max-width: 420px;
+  padding: 24px;
+}
+
+.splash {
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.splash-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+/* ------------------------------ 设置页 ------------------------------ */
+
+.settings-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.settings-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 32px 40px;
+}
+
+.settings-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 10px 4px;
+  border-radius: var(--borderRadiusMedium);
+}
+
+.settings-row-desc {
+  font-size: 12px;
+  color: var(--colorNeutralForeground3);
+  margin-top: 2px;
+}
+
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+  overflow: hidden;
+}
+
+.kv-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--colorNeutralBackground1);
+}
+
+.kv-row + .kv-row {
+  border-top: 1px solid var(--colorNeutralStroke1);
+}
+
+.kv-key {
+  color: var(--colorNeutralForeground2);
+  flex: none;
+}
+
+.kv-val {
+  font-family: var(--fontFamilyMonospace);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窄屏 */
+@media (max-width: 900px) {
+  .chat-scroll-inner,
+  .composer-inner {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .composer-wrap {
+    padding: 10px 12px 12px;
+  }
+
+  .bubble,
+  .tool-card {
+    max-width: 92%;
+  }
+}

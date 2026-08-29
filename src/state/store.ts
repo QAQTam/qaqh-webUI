@@ -10,6 +10,12 @@ export interface Store<T> {
   subscribe(fn: () => void): () => void;
 }
 
+/** 只读视图（协变）：useStore 只需要读与订阅 */
+export interface ReadStore<T> {
+  get(): T;
+  subscribe(fn: () => void): () => void;
+}
+
 export function createStore<T>(initial: T): Store<T> {
   let state = initial;
   const subs = new Set<() => void>();
@@ -26,7 +32,7 @@ export function createStore<T>(initial: T): Store<T> {
   };
 }
 
-export function useStore<T, S>(store: Store<T>, selector: (s: T) => S): S {
+export function useStore<T, S>(store: ReadStore<T>, selector: (s: T) => S): S {
   return useSyncExternalStore(
     store.subscribe,
     () => selector(store.get()),

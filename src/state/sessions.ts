@@ -49,7 +49,8 @@ export async function createSession(client: RingingClient, title?: string): Prom
 }
 
 export async function renameSession(client: RingingClient, seed: string, title: string): Promise<void> {
-  await client.sendCommand('control', CONTROL_COMMANDS.sessionRename, { seed, title });
+  // 会话生命周期命令：seed 走信封级字段（PLAN §2.4 会话域命令必带）
+  await client.sendCommand('control', CONTROL_COMMANDS.sessionRename, { title }, { seed });
   sessionsStore.set((s) => ({
     ...s,
     list: s.list.map((x) => (x.seed === seed ? { ...x, title, updated_at: new Date().toISOString() } : x)),
@@ -58,7 +59,7 @@ export async function renameSession(client: RingingClient, seed: string, title: 
 }
 
 export async function deleteSession(client: RingingClient, seed: string): Promise<void> {
-  await client.sendCommand('control', CONTROL_COMMANDS.sessionDelete, { seed });
+  await client.sendCommand('control', CONTROL_COMMANDS.sessionDelete, {}, { seed });
   sessionsStore.set((s) => ({
     ...s,
     list: s.list.filter((x) => x.seed !== seed),

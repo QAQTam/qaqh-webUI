@@ -37,6 +37,8 @@ export interface TimelineState {
   streamingText: string;
   /** 命令在途（发送中） */
   pendingSend: boolean;
+  /** 最近一个回合被中止（展示"已中止"提示，下一回合开始时清除） */
+  abortedNote: boolean;
 }
 
 type TimelineMap = Record<string, TimelineState>;
@@ -56,6 +58,7 @@ function emptyState(seed: string): TimelineState {
     activeTurn: null,
     streamingText: '',
     pendingSend: false,
+    abortedNote: false,
   };
 }
 
@@ -190,6 +193,41 @@ export class TimelineController {
 }
 
 // ---------------------------------------------------------------------------
+// 控制器注册表：同一时刻仅附着一个会话；epoch 重建后由 onReattach 重新 start
+// ---------------------------------------------------------------------------
+
+const controllers = new Map<string, TimelineController>();
+
+export function attachTimeline(client: RingingClient, seed: string): void {
+  for (const [s, c] of controllers) {
+    if (s !== seed) {
+      c.stop();
+      controllers.delete(s);
+    }
+  }
+  let controller = controllers.get(seed);
+  if (!controller) {
+    controller = new TimelineController(client, seed);
+    controllers.set(seed, controller);
+  }
+  void controller.start();
+}
+
+export function getController(seed: string): TimelineController | undefined {
+  return controllers.get(seed);
+}
+
+/** App 监听：timeline 重载事件（错误重试） */
+export function listenTimelineReload(): () => void {
+  const handler = (e: Event): void => {
+    const seed = (e as CustomEvent<string>).detail;
+    if (typeof seed === 'string' && controllers.has(seed)) void controllers.get(seed)!.start();
+  };
+  window.addEventListener('qaqh.timeline.reload', handler);
+  return () => window.removeEventListener('qaqh.timeline.reload', handler);
+}
+
+// ---------------------------------------------------------------------------
 // 会话内命令与流式事件投影
 // ---------------------------------------------------------------------------
 
@@ -201,7 +239,7 @@ export function bindTimelineToClient(client: RingingClient): () => void {
       if (!seed) return;
       switch (event) {
         case 'turn.started':
-          patch(seed, (s) => ({ ...s, activeTurn: d.turn ?? null, streamingText: '' }));
+          patch(seed, (s) => ({ ...s, activeTurn: d.turn ?? null, streamingText: '', abortedNote: false }));
           break;
         case 'message.delta':
           patch(seed, (s) => ({
@@ -215,7 +253,12 @@ export function bindTimelineToClient(client: RingingClient): () => void {
           patch(seed, (s) => ({ ...s, streamingText: '' }));
           break;
         case 'turn.finished':
-          patch(seed, (s) => ({ ...s, activeTurn: null, streamingText: '' }));
+          patch(seed, (s) => ({
+            ...s,
+            activeTurn: null,
+            streamingText: '',
+            abortedNote: d.status === 'aborted',
+          }));
           break;
         default:
           break;
