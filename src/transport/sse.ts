@@ -180,7 +180,7 @@ export function connectSse(options: SseConnectOptions): void {
       signal.addEventListener('abort', onOuterAbort, { once: true });
       try {
         options.onStatus?.(attempt === 0 ? 'connecting' : 'reconnecting');
-        const headers = { ...options.headers, Accept: 'text/event-stream' };
+        const headers: Record<string, string> = { ...options.headers, Accept: 'text/event-stream' };
         if (lastEventId) headers['Last-Event-ID'] = lastEventId;
         const res = await fetch(options.url, { headers, signal: controller.signal });
         if (res.status === 401) throw new SseError('unauthorized', 401);
@@ -251,11 +251,13 @@ export function connectSse(options: SseConnectOptions): void {
   })();
 }
 
+type ReadResult<T> = Awaited<ReturnType<ReadableStreamDefaultReader<T>['read']>>;
+
 /** reader.read() 与 controller 中止的竞速：abort 时必定及时返回 */
 async function readWithAbort(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   controller: AbortController,
-): Promise<ReadableStreamReadResult<Uint8Array>> {
+): Promise<ReadResult<Uint8Array>> {
   return await new Promise((resolve, reject) => {
     const onAbort = () => {
       cleanup();

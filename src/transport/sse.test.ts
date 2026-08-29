@@ -134,7 +134,7 @@ describe('connectSse', () => {
         return sseResponse(['event: a\ndata: 1\nid: 1:conversation:5\n\n'], { delayMs: 5 });
       }
       return sseResponse(['event: b\ndata: 2\nid: 1:conversation:6\n\n'], { delayMs: 5 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       const controller = new AbortController();
@@ -173,7 +173,7 @@ describe('connectSse', () => {
         );
       }
       return sseResponse(['data: revived\n\n'], { delayMs: 5 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       const controller = new AbortController();
@@ -205,7 +205,7 @@ describe('connectSse', () => {
     globalThis.fetch = (async () => {
       call += 1;
       return new Response('{"error":"unsupported_version"}', { status: 426 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     try {
       const controller = new AbortController();
       let terminal: SseError | undefined;
