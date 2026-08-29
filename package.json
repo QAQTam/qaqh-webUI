@@ -1,0 +1,29 @@
+{
+  "name": "qaqh-webui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "QAQ-Harness webUI（qaqh.Ringing 协议前端）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@fluentui/react-components": "9.74.7",
+    "@fluentui/react-drawer": "9.13.3",
+    "@fluentui/react-icons": "2.0.339",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "bun-types": "1.4.0",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  }
+}

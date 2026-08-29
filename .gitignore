@@ -1,0 +1,18 @@
+# 依赖
+node_modules/
+
+# 构建产物（daemon 托管目录，不入库）
+out/
+
+# 工具缓存
+.vite/
+*.tsbuildinfo
+
+# 环境与本地状态
+.env
+.env.local
+mock-state.json
+
+# 系统杂项
+Thumbs.db
+.DS_Store
