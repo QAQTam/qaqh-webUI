@@ -1,7 +1,14 @@
 /** 展示格式化工具 */
 
-export function formatRelativeTime(iso: string): string {
-  const t = Date.parse(iso);
+/** 相对时间：接受 unix 秒 / unix 毫秒 / ISO 字符串 */
+export function formatRelativeTime(input: string | number): string {
+  let t: number;
+  if (typeof input === 'number') {
+    // unix 秒（daemon session.list 约定）自动放大为毫秒
+    t = input < 1e12 ? input * 1000 : input;
+  } else {
+    t = Date.parse(input);
+  }
   if (!Number.isFinite(t)) return '';
   const diff = Date.now() - t;
   if (diff < 60_000) return '刚刚';
@@ -12,20 +19,18 @@ export function formatRelativeTime(iso: string): string {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-export function formatClock(iso: string): string {
-  const t = Date.parse(iso);
+/** 时钟：接受 unix 秒 / unix 毫秒 / ISO 字符串 */
+export function formatClock(input: string | number): string {
+  const t = typeof input === 'number' ? (input < 1e12 ? input * 1000 : input) : Date.parse(input);
   if (!Number.isFinite(t)) return '';
   const d = new Date(t);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-export function formatDuration(startedAt?: string, finishedAt?: string): string {
-  if (!startedAt) return '';
-  const s = Date.parse(startedAt);
-  const e = finishedAt ? Date.parse(finishedAt) : Date.now();
-  if (!Number.isFinite(s) || !Number.isFinite(e)) return '';
-  const ms = Math.max(0, e - s);
-  if (ms < 1000) return `${ms}ms`;
+/** 毫秒时长展示 */
+export function formatDurationMs(ms?: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return '';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
 

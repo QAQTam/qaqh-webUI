@@ -1,73 +1,93 @@
 /**
- * 服务面方法 typed 常量（PLAN §4）：
- * 对照 `qaqh_runtime::ringing::service_methods` 生成，禁止散落字面量。
- * 本仓按需镜像子集（22 Read + 19 Write 中的已用部分）；扩充时对照后端 PR。
- * TODO(对照后端)：以下命名以 service_methods.rs 实际方法名为准后修正。
+ * 服务面方法与频道命令 typed 常量。
+ * 对照 `qaqh_runtime::ringing::service_methods` 与
+ * `qaqh_domain::command.rs`（serde rename_all=snake_case 后的 wire 名）。
+ * 禁止散落字面量；扩充时对照后端 PR。
  */
 
+// ---------------------------------------------------------------------------
+// 服务面（Read 无副作用 / Write 变更）
+// ---------------------------------------------------------------------------
+
 export const READ_METHODS = {
+  daemonVersion: 'daemon.version',
   sessionList: 'session.list',
-  sessionGet: 'session.get',
-  configGet: 'config.get',
-  workspaceInfo: 'workspace.info',
+  sessionMeta: 'session.meta',
+  configLoad: 'config.load',
+  workspaceGet: 'workspace.get',
 } as const;
 
 export const WRITE_METHODS = {
-  configSet: 'config.set',
+  configSave: 'config.save',
 } as const;
 
 export type ReadMethodName = (typeof READ_METHODS)[keyof typeof READ_METHODS];
 export type WriteMethodName = (typeof WRITE_METHODS)[keyof typeof WRITE_METHODS];
 export type ServiceMethodName = ReadMethodName | WriteMethodName;
 
-/** 仅内置 mock daemon 支持（用于开发期演示 epoch 重置），真实后端返回 404 */
-export const DEV_ONLY_METHODS = {
+// ---------------------------------------------------------------------------
+// 频道命令 wire 名（command.type，snake_case）
+// 会话生命周期只走 commands 面（N5）：service 面没有 session.new/resume
+// ---------------------------------------------------------------------------
+
+export const CONTROL_COMMANDS = {
+  sessionCreate: 'session_create',
+  sessionResume: 'session_resume',
+  sessionClose: 'session_close',
+  sessionArchive: 'session_archive',
+  sessionUnarchive: 'session_unarchive',
+  sessionDelete: 'session_delete',
+} as const;
+
+export const CONVERSATION_COMMANDS = {
+  sendMessage: 'conversation_send_message',
+  cancel: 'conversation_cancel',
+} as const;
+
+export const TOOL_COMMANDS = {
+  toolPermissionRespond: 'tool_permission_respond',
+} as const;
+
+export type ControlCommandName = (typeof CONTROL_COMMANDS)[keyof typeof CONTROL_COMMANDS];
+export type ConversationCommandName =
+  (typeof CONVERSATION_COMMANDS)[keyof typeof CONVERSATION_COMMANDS];
+export type ToolCommandName = (typeof TOOL_COMMANDS)[keyof typeof TOOL_COMMANDS];
+
+/** 仅内置 mock daemon 支持（开发期演示 epoch 重置）；真实后端返回 404 unknown_method */
+export const MOCK_ONLY_METHODS = {
   debugResetEpoch: 'debug.reset_epoch',
 } as const;
 
-/** Read 方法错误码为 query_failed，Write 为 action_failed */
-export function isReadMethod(m: ServiceMethodName): boolean {
-  return Object.values(READ_METHODS).includes(m as ReadMethodName);
+// ---------------------------------------------------------------------------
+// 命令参数（qaqh_domain::command.rs 镜像）
+// ---------------------------------------------------------------------------
+
+export interface SessionCreateParams {
+  close_current?: boolean;
+  cwd?: string;
+  tool_mode?: string;
+  custom_tools?: string[];
 }
 
-// ---------------------------------------------------------------------------
-// 命令面 typed 常量（§2.4；会话生命周期只走此面 N5）
-// ---------------------------------------------------------------------------
+export interface SessionResumeParams {
+  seed: string;
+}
 
-export const CONVERSATION_COMMANDS = {
-  userSend: 'user.send',
-  turnAbort: 'turn.abort',
-} as const;
+export interface SessionCloseParams {
+  seed: string;
+}
 
-export const CONTROL_COMMANDS = {
-  sessionNew: 'session.new',
-  sessionRename: 'session.rename',
-  sessionDelete: 'session.delete',
-  sessionResume: 'session.resume',
-} as const;
+export interface SessionDeleteParams {
+  seed: string;
+}
 
-export type ConversationCommandName =
-  (typeof CONVERSATION_COMMANDS)[keyof typeof CONVERSATION_COMMANDS];
-export type ControlCommandName = (typeof CONTROL_COMMANDS)[keyof typeof CONTROL_COMMANDS];
-
-// ---------------------------------------------------------------------------
-// 命令 / 事件 payload（按需增量镜像）
-// ---------------------------------------------------------------------------
-
-export interface UserSendPayload {
+export interface SendMessageParams {
   text: string;
+  images?: { mime_type: string; data: string }[];
   attachments?: import('./types').ContentRef[];
+  as_system?: boolean;
 }
 
-export interface SessionNewResult {
-  seed: string;
-}
-
-export interface SessionRenamePayload {
-  seed: string;
-  title: string;
-}
-
-export interface SessionDeletePayload {
-  seed: string;
+export interface CancelParams {
+  turn_id?: string;
 }

@@ -1,5 +1,6 @@
 /**
- * App 编排：桥等待 → open 握手 → 租约续租 → 会话列表 → 选中会话挂 timeline。
+ * App 编排：桥等待 → open 握手 → 续租循环 → 会话列表 → 选中会话
+ * resume（seed 归属 lease）→ timeline 快照 + 增量流。
  * 视图：聊天 / 设置；窄屏侧栏走 Drawer；协议代差展示阻断式"需更新"。
  */
 import { useEffect, useRef, useState } from 'react';
@@ -30,7 +31,6 @@ import { ChatArea } from './features/timeline/ChatArea';
 import { Composer } from './features/composer/Composer';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ConnectionBadge } from './ui/ConnectionBadge';
-import type { SessionSummary } from './protocol/types';
 
 type BootPhase = 'waiting' | 'no_bridge' | 'ready';
 type View = 'chat' | 'settings';
@@ -85,17 +85,27 @@ export default function App() {
       bindTimelineToClient(client);
       listenTimelineReload();
 
-      // control 频道会话变更 → 列表投影
-      client.onServerEvent((channel, event, data) => {
-        if (channel === 'control' && event === 'session.changed') {
-          const summary = data as SessionSummary;
-          if (summary?.seed) {
-            setActiveSeedActive(summary);
-          }
+      // control 频道（session_state_changed / session_meta_changed /
+      // session_activity_changed）→ 防抖刷新列表（标题由 daemon 生成）
+      let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+      client.onServerEvent((channel, eventName) => {
+        if (channel !== 'control') return;
+        if (
+          eventName !== 'session_state_changed' &&
+          eventName !== 'session_meta_changed' &&
+          eventName !== 'session_activity_changed' &&
+          eventName !== 'agent_lifecycle_changed'
+        ) {
+          return;
         }
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          void refreshSessions(client);
+        }, 400);
       });
 
-      // epoch 重建 / reset_required 后重新挂载当前会话 timeline
+      // epoch 重建（open 内自动 resume）后重新挂载当前会话 timeline
       client.onReattach(() => {
         const seed = sessionsStore.get().activeSeed;
         if (seed) attachTimeline(client, seed);
@@ -111,6 +121,7 @@ export default function App() {
         const first = sessionsStore.get().list[0];
         if (first) {
           setActiveSeed(first.seed);
+          await client.attachSession(first.seed);
           attachTimeline(client, first.seed);
         }
       } catch (err) {
@@ -166,9 +177,13 @@ export default function App() {
 
   const disconnected = connState !== 'ready' && connState !== 'attached';
 
+  /** 切换会话：resume（seed 归属 lease）→ timeline 快照 + 流 */
   const selectSession = (seed: string): void => {
     setActiveSeed(seed);
-    attachTimeline(client, seed);
+    void client
+      .attachSession(seed)
+      .then(() => attachTimeline(client, seed))
+      .catch(() => attachTimeline(client, seed)); // resume 失败时 timeline 会以 401 暴露错误
   };
 
   const sidebar = (
@@ -240,7 +255,7 @@ export default function App() {
         </main>
       </div>
 
-      {/* 协议代差：阻断式提示（N：426 → 展示"需更新"，停重试） */}
+      {/* 协议代差：阻断式提示（426 → 展示"需更新"，停重试） */}
       <Dialog modalType="alert" open={needsUpdate}>
         <DialogSurface aria-modal="true">
           <DialogBody>
@@ -259,14 +274,4 @@ export default function App() {
       </Dialog>
     </FluentProvider>
   );
-}
-
-/** session.changed → 列表 upsert；若是删除后的当前会话则清空激活 */
-function setActiveSeedActive(summary: SessionSummary): void {
-  const state = sessionsStore.get();
-  const exists = state.list.some((s) => s.seed === summary.seed);
-  sessionsStore.set((s) => ({
-    ...s,
-    list: exists ? s.list.map((x) => (x.seed === summary.seed ? { ...x, ...summary } : x)) : [summary, ...s.list],
-  }));
 }

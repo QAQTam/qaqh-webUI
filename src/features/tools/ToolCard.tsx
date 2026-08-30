@@ -1,7 +1,7 @@
 /**
- * 工具 result 卡片：tool 频道事件 + timeline 规范条目投影。
- * 状态徽标（running/succeeded/failed/cancelled）、时长、参数与输出折叠视图；
- * 失败自动展开；"原始输出"设置切换 JSON 原文视图。
+ * 工具 result 卡片：原生 timeline tool 块（TimelineTool）投影。
+ * 状态徽标（prepared/running/succeeded/failed）、实时进度流、参数与输出折叠视图；
+ * 失败自动展开；"原始输出"设置切换原文视图；diff 块（文件变更工具）展示。
  */
 import { useEffect, useState } from 'react';
 import {
@@ -20,15 +20,13 @@ import {
   ChevronDownRegular,
   ChevronRightRegular,
   CodeRegular,
-  DismissCircleRegular,
   DocumentRegular,
   ErrorCircleRegular,
   GlobeRegular,
   SearchRegular,
   WrenchRegular,
 } from '@fluentui/react-icons';
-import type { ToolItem } from '../../protocol/types';
-import { formatDuration } from '../../utils/format';
+import type { TimelineTool } from '../../protocol/types';
 
 const useClasses = makeStyles({
   header: {
@@ -49,17 +47,23 @@ const useClasses = makeStyles({
     fontWeight: tokens.fontWeightSemibold,
     fontSize: '13px',
   },
-  duration: {
+  summary: {
     color: tokens.colorNeutralForeground3,
-    fontSize: '11px',
-    marginLeft: 'auto',
-  },
-  errorText: {
-    color: tokens.colorPaletteRedForeground1,
-    fontFamily: tokens.fontFamilyMonospace,
     fontSize: '12px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: '320px',
+  },
+  progress: {
+    fontFamily: tokens.fontFamilyMonospace,
+    fontSize: '11px',
+    color: tokens.colorNeutralForeground3,
     whiteSpace: 'pre-wrap',
     overflowWrap: 'anywhere',
+    maxHeight: '72px',
+    overflowY: 'auto',
+    padding: '0 12px 8px',
   },
   cardFailed: {
     ...shorthands.borderColor(tokens.colorPaletteRedBorder1),
@@ -69,14 +73,20 @@ const useClasses = makeStyles({
 function toolIcon(name: string) {
   const lower = name.toLowerCase();
   if (/search|web/.test(lower)) return <SearchRegular fontSize={16} />;
-  if (/file|read|write|edit|patch/.test(lower)) return <DocumentRegular fontSize={16} />;
-  if (/command|shell|code|run|exec/.test(lower)) return <CodeRegular fontSize={16} />;
+  if (/file|read|write|edit|patch|glob/.test(lower)) return <DocumentRegular fontSize={16} />;
+  if (/command|shell|code|run|exec|pwsh/.test(lower)) return <CodeRegular fontSize={16} />;
   if (/browse|http|url/.test(lower)) return <GlobeRegular fontSize={16} />;
   return <WrenchRegular fontSize={16} />;
 }
 
-function StatusBadge({ item }: { item: ToolItem }) {
-  switch (item.status) {
+function StatusBadge({ tool }: { tool: TimelineTool }) {
+  switch (tool.state) {
+    case 'prepared':
+      return (
+        <Badge appearance="tint" color="informative" size="small">
+          准备中
+        </Badge>
+      );
     case 'running':
       return (
         <>
@@ -98,39 +108,45 @@ function StatusBadge({ item }: { item: ToolItem }) {
           失败
         </Badge>
       );
-    case 'cancelled':
-      return (
-        <Badge appearance="tint" color="informative" size="small" icon={<DismissCircleRegular />}>
-          已取消
-        </Badge>
-      );
   }
 }
 
-export function ToolCard({ item, rawOutput }: { item: ToolItem; rawOutput: boolean }) {
+function parseArgs(argsJson?: string): unknown {
+  if (!argsJson) return undefined;
+  try {
+    return JSON.parse(argsJson) as unknown;
+  } catch {
+    return argsJson;
+  }
+}
+
+export function ToolCard({ tool, rawOutput }: { tool: TimelineTool; rawOutput: boolean }) {
   const cls = useClasses();
-  const [open, setOpen] = useState(item.status === 'failed');
+  const [open, setOpen] = useState(tool.state === 'failed');
 
-  // 失败/取消时自动展开；完成时若未展开则保持收起
+  // 失败时自动展开
   useEffect(() => {
-    if (item.status === 'failed') setOpen(true);
-  }, [item.status]);
+    if (tool.state === 'failed') setOpen(true);
+  }, [tool.state]);
 
-  const hasDetail = item.args !== undefined || item.output || item.error;
+  const args = parseArgs(tool.args_json);
+  const failure = tool.failure;
+  const hasDetail =
+    args !== undefined || tool.output || failure || tool.diff || tool.permission;
 
   return (
     <div className="msg-row tool-card-wrap">
-      <Card size="small" className={`tool-card ${item.status === 'failed' ? cls.cardFailed : ''}`}>
+      <Card size="small" className={`tool-card ${tool.state === 'failed' ? cls.cardFailed : ''}`}>
         <button
           type="button"
           className={cls.header}
           onClick={() => hasDetail && setOpen((v) => !v)}
           aria-expanded={open}
         >
-          {toolIcon(item.name)}
-          <Text className={cls.name}>{item.name}</Text>
-          <StatusBadge item={item} />
-          <span className={cls.duration}>{formatDuration(item.started_at, item.finished_at)}</span>
+          {toolIcon(tool.name)}
+          <Text className={cls.name}>{tool.name}</Text>
+          {tool.summary && !open && <span className={cls.summary}>{tool.summary.split('\n')[0]}</span>}
+          <StatusBadge tool={tool} />
           {hasDetail && (
             <Tooltip content={open ? '收起详情' : '展开详情'} relationship="label">
               <Button
@@ -143,28 +159,48 @@ export function ToolCard({ item, rawOutput }: { item: ToolItem; rawOutput: boole
           )}
         </button>
 
+        {tool.progress && !open && <div className={cls.progress}>{tool.progress}</div>}
+
         {open && hasDetail && (
           <div className="tool-card-body">
+            {tool.permission && (
+              <div className="tool-kv">
+                <span className="tool-kv-label">权限请求</span>
+                <pre>
+                  {tool.permission.reason}
+                  {tool.permission.paths.length > 0 ? `\n路径: ${tool.permission.paths.join(', ')}` : ''}
+                </pre>
+              </div>
+            )}
             {rawOutput ? (
-              <pre>{JSON.stringify({ args: item.args, output: item.output, error: item.error }, null, 2)}</pre>
+              <pre>{JSON.stringify({ args, tool }, null, 2)}</pre>
             ) : (
               <>
-                {item.args !== undefined && (
+                {args !== undefined && (
                   <div className="tool-kv">
                     <span className="tool-kv-label">参数</span>
-                    <pre>{JSON.stringify(item.args, null, 2)}</pre>
+                    <pre>{typeof args === 'string' ? args : JSON.stringify(args, null, 2)}</pre>
                   </div>
                 )}
-                {item.output && (
+                {tool.output && (
                   <div className="tool-kv">
                     <span className="tool-kv-label">输出</span>
-                    <pre>{item.output}</pre>
+                    <pre>{tool.output}</pre>
                   </div>
                 )}
-                {item.error && (
+                {tool.diff && (
+                  <div className="tool-kv">
+                    <span className="tool-kv-label">变更</span>
+                    <pre>{tool.diff}</pre>
+                  </div>
+                )}
+                {failure && (
                   <div className="tool-kv">
                     <span className="tool-kv-label">错误</span>
-                    <span className={cls.errorText}>{item.error}</span>
+                    <pre>
+                      {failure.code ? `${failure.code}: ` : ''}
+                      {failure.message}
+                    </pre>
                   </div>
                 )}
               </>

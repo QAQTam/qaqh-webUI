@@ -9,7 +9,7 @@ export function endpointOpen(base: string): string {
 }
 
 export function endpointRenew(base: string): string {
-  return `${base}/ringing/v1/clients/renew`;
+  return `${base}/ringing/v1/leases/renew`;
 }
 
 export function endpointEvents(base: string, channel: Channel): string {
@@ -26,6 +26,24 @@ export function endpointBootstrap(base: string, seed: string): string {
 
 export function endpointTimeline(base: string, seed: string): string {
   return `${base}/ringing/v1/sessions/${encodeURIComponent(seed)}/timeline`;
+}
+
+/** timeline 快照分页：before_turn=<turn_id>&limit（默认 30，上限 200） */
+export function endpointTimelinePage(
+  base: string,
+  seed: string,
+  opts: { beforeTurn?: string; limit?: number } = {},
+): string {
+  const q = new URLSearchParams();
+  if (opts.beforeTurn) q.set('before_turn', opts.beforeTurn);
+  if (opts.limit != null) q.set('limit', String(opts.limit));
+  const qs = q.toString();
+  return endpointTimeline(base, seed) + (qs ? `?${qs}` : '');
+}
+
+/** 命令收据（ack 丢失/断线后查终态） */
+export function endpointCommandStatus(base: string, commandId: string): string {
+  return `${base}/ringing/v1/commands/${encodeURIComponent(commandId)}`;
 }
 
 export function endpointTimelineEvents(base: string, seed: string): string {

@@ -1,7 +1,12 @@
 /**
- * RingingClient（PLAN M2）：open → READY(leased) → 续租循环 → epoch 重建。
- * 状态机：OPENING → READY(leased) → ATTACHED；连续续租失败 → 重新 OPEN；
- * server_epoch 变化 / ringing.reset_required → 全频道重置重放 + 重挂载当前会话。
+ * RingingClient（PLAN M2，按真实后端 wire 格式重写）：
+ * open → READY(leased) → 续租循环（/leases/renew，renew_interval_ms）→ ATTACHED。
+ * 状态机（webui-standard §1）：OPENING → READY → ATTACHED；
+ * 401 lease_required / 续租失败 → 重新 OPEN → session_resume 恢复会话；
+ * server_epoch 变化 / ringing.reset_required → 全频道重置重放。
+ *
+ * 约束：token 仅内存（N3）；命令一律带 open 签发的 client_session_id（N4）；
+ * 会话生命周期只走 commands 面（N5）。
  */
 import { createStore, type Store } from '../state/store';
 import {
@@ -13,9 +18,11 @@ import {
   type CommandEnvelope,
   type CommandAck,
   type ContentRef,
-  type OpenResponse,
+  type ContentUploadResponse,
+  type OpenAccepted,
   type RenewResponse,
 } from '../protocol/types';
+import { CONTROL_COMMANDS } from '../protocol/methods';
 import {
   endpointOpen,
   endpointRenew,
@@ -47,7 +54,7 @@ export interface ChannelDiag {
 
 export interface ClientSnapshot {
   state: ConnectionState;
-  epoch: number;
+  epoch: string;
   sessionId: string | null;
   leaseTtlMs: number | null;
   renewIntervalMs: number | null;
@@ -69,17 +76,16 @@ export class UnsupportedVersionError extends Error {
   }
 }
 
-function parseSeqFromId(id: string): { epoch: number; seq: number } | null {
+function parseSeqFromId(id: string): { epoch: string; seq: number } | null {
   const parts = id.split(':');
   if (parts.length !== 3) return null;
-  const epoch = Number.parseInt(parts[0], 10);
   const seq = Number.parseInt(parts[2], 10);
-  if (!Number.isFinite(epoch) || !Number.isFinite(seq)) return null;
-  return { epoch, seq };
+  if (!Number.isFinite(seq)) return null;
+  return { epoch: parts[0], seq };
 }
 
 export class RingingClient {
-  /** 实例 id：同一浏览器标签页生命周期内稳定（幂等键的一半） */
+  /** 实例 id：同一浏览器标签页生命周期内稳定（lease 绑定身份） */
   readonly instanceId: string = crypto.randomUUID();
 
   readonly store: Store<ClientSnapshot>;
@@ -87,7 +93,7 @@ export class RingingClient {
   private readonly base: string;
   private token: string;
   private sessionId: string | null = null;
-  private epoch = 0;
+  private epoch = '';
   private leaseTtlMs: number | null = null;
   private renewIntervalMs = 10_000;
   private renewTimer: ReturnType<typeof setTimeout> | null = null;
@@ -162,10 +168,25 @@ export class RingingClient {
     return () => this.listeners.delete(listener);
   }
 
-  /** epoch 重建完成后回调（重新 bootstrap + 重挂 timeline 流） */
+  /** epoch 重建 + resume 完成后回调（重新 bootstrap + 重挂 timeline 流） */
   onReattach(cb: () => void): () => void {
     this.reattachCallbacks.add(cb);
     return () => this.reattachCallbacks.delete(cb);
+  }
+
+  // -------------------------------------------------------------------------
+  // 会话挂载（session_resume 是 seed 归属 lease 的唯一途径）
+  // -------------------------------------------------------------------------
+
+  /**
+   * 挂载（resume）已有会话到当前 lease。bootstrap/timeline 读取前置条件
+   * （daemon 401 "attach the session seed before ..."）。
+   */
+  async attachSession(seed: string): Promise<void> {
+    this.currentSeed = seed;
+    if (!this.sessionId) throw new Error('未建立客户端会话');
+    await this.sendCommand('control', CONTROL_COMMANDS.sessionResume, { seed }, { seed });
+    if (this.store.get().state === 'ready') this.setState('attached');
   }
 
   setCurrentSeed(seed: string | null): void {
@@ -180,7 +201,7 @@ export class RingingClient {
   async open(): Promise<void> {
     this.setState('opening');
     try {
-      const res = await postJson<OpenResponse>(
+      const res = await postJson<OpenAccepted>(
         endpointOpen(this.base),
         { schema: RINGING_SCHEMA, version: RINGING_VERSION, client_instance_id: this.instanceId },
         { token: this.token, clientSessionId: null },
@@ -191,18 +212,33 @@ export class RingingClient {
       this.epoch = res.server_epoch;
       this.leaseTtlMs = res.lease_ttl_ms;
       this.renewIntervalMs = res.renew_interval_ms;
-      // epoch 变化 → 全频道序号重置重放（§2.9）
-      for (const c of CHANNELS) this.channels[c] = { status: 'stopped', lastSeq: 0, lastByteAt: performance.now(), reconnects: 0 };
+      // epoch 变化 → 全频道序号重置（重建后由 resume + bootstrap 重放）
+      for (const c of CHANNELS)
+        this.channels[c] = {
+          status: 'stopped',
+          lastSeq: 0,
+          lastByteAt: performance.now(),
+          reconnects: 0,
+        };
       this.setState('ready');
       this.startChannels();
       this.scheduleRenew(res.renew_interval_ms);
       if (this.currentSeed) {
+        try {
+          await this.attachSession(this.currentSeed);
+        } catch {
+          // resume 失败不阻断 ready 态；bootstrap 会以 lease_required 暴露
+        }
         for (const cb of this.reattachCallbacks) cb();
       }
     } catch (err) {
       if (err instanceof UnsupportedVersionError) {
         this.setState('needs_update', '协议代差：客户端需要更新');
         throw err;
+      }
+      if (err instanceof HttpError && err.status === 426) {
+        this.setState('needs_update', '协议代差：客户端需要更新');
+        throw new UnsupportedVersionError();
       }
       if (err instanceof HttpError && err.status === 401) {
         this.setState('unauthorized', '鉴权失败：桥 token 无效或已过期');
@@ -257,7 +293,10 @@ export class RingingClient {
     } catch {
       // 非 JSON data：原样传递
     }
-    if (channel === 'control' && msg.event === 'ringing.reset_required') {
+    // ringing.reset_required：cursor 超出 journal 保留窗口或 daemon 重启
+    // （epoch 变化）。按 §1 状态机全量重建：重新 open → resume → 重放；
+    // reopenQueued 防止三频道同时触发多份重建。
+    if (msg.event === 'ringing.reset_required') {
       void this.rebuild('reset_required');
       return;
     }
@@ -272,20 +311,18 @@ export class RingingClient {
   private async renew(): Promise<void> {
     if (this.lifecycle.signal.aborted || !this.sessionId) return;
     try {
-      const res = await postJson<RenewResponse>(
-        endpointRenew(this.base),
-        {},
-        this.auth,
-        { timeoutMs: 8_000 },
-      );
-      if (!res.accepted) throw new HttpError(401, 'unauthorized', '租约被拒绝');
+      const res = await postJson<RenewResponse>(endpointRenew(this.base), {}, this.auth, {
+        timeoutMs: 8_000,
+      });
+      if (!res.ok) throw new HttpError(401, 'lease_required', '租约被拒绝');
       this.renewFailures = 0;
+      this.leaseTtlMs = res.lease_ttl_ms ?? this.leaseTtlMs;
       this.scheduleRenew(res.renew_interval_ms ?? this.renewIntervalMs);
     } catch (err) {
       if (this.lifecycle.signal.aborted) return;
       this.renewFailures += 1;
       if (err instanceof HttpError && (err.status === 401 || err.status === 426)) {
-        void this.rebuild(err.status === 426 ? '协议代差' : '鉴权失效');
+        void this.rebuild(err.status === 426 ? '协议代差' : '租约过期');
         return;
       }
       if (this.renewFailures >= RENEW_MAX_FAILURES) {
@@ -296,7 +333,7 @@ export class RingingClient {
     }
   }
 
-  /** 重新 OPEN：中止全部频道与续租，重建后重放（currentSeed 自动重挂） */
+  /** 重新 OPEN：中止全部频道与续租，重建后 resume + 重放（currentSeed 自动重挂） */
   async rebuild(reason: string): Promise<void> {
     if (this.reopenQueued) return;
     this.reopenQueued = true;
@@ -339,38 +376,67 @@ export class RingingClient {
   // 命令面 / 服务面 / 附件
   // -------------------------------------------------------------------------
 
-  async sendCommand<R = unknown>(
+  /**
+   * 发送频道命令。信封 = 双层 tag：外层 channel + 内层 command{channel,type}。
+   * 除 session_create 外信封级必须带 seed（缺省时由 opts.seed 传入）；
+   * seed 传 null 显式省略（仅 session_create）。
+   * rejected ack（HTTP 400/502 载荷）作为正常返回值，不抛异常。
+   */
+  async sendCommand<P extends object = Record<string, unknown>>(
     channel: Channel,
     type: string,
-    payload: unknown,
-    opts?: { seed?: string; expectedRevision?: number; timeoutMs?: number },
-  ): Promise<CommandAck<R>> {
+    params: P,
+    opts: {
+      seed?: string | null;
+      expectedRevision?: number;
+      timeoutMs?: number;
+      /** 同一逻辑命令重试时复用同一 command_id（幂等纪律） */
+      commandId?: string;
+    } = {},
+  ): Promise<CommandAck> {
     if (!this.sessionId) throw new Error('未建立客户端会话');
     const envelope: CommandEnvelope = {
-      command_id: crypto.randomUUID(),
+      schema: RINGING_SCHEMA,
+      version: RINGING_VERSION,
+      channel,
+      command_id: opts.commandId ?? crypto.randomUUID(),
       client_instance_id: this.instanceId,
       client_session_id: this.sessionId,
-      seed: opts?.seed,
-      expected_revision: opts?.expectedRevision,
-      type,
-      payload,
+      ...(opts.seed !== null ? { seed: opts.seed ?? undefined } : {}),
+      ...(opts.expectedRevision != null ? { expected_revision: opts.expectedRevision } : {}),
+      command: { channel, type, ...params },
     };
-    return postJson<CommandAck<R>>(
-      endpointCommands(this.base, channel),
-      envelope,
-      this.auth,
-      { timeoutMs: opts?.timeoutMs ?? 10_000 },
-    );
+    try {
+      return await postJson<CommandAck>(endpointCommands(this.base, channel), envelope, this.auth, {
+        timeoutMs: opts.timeoutMs ?? 10_000,
+      });
+    } catch (err) {
+      // daemon 把 rejected ack 放在 400/502 载荷里；401 归 lease 失效
+      if (err instanceof HttpError && (err.status === 400 || err.status === 502)) {
+        const body = err.body as Partial<CommandAck> | undefined;
+        if (body && typeof body === 'object' && 'status' in body) {
+          return body as CommandAck;
+        }
+        return { command_id: envelope.command_id, status: 'rejected', code: err.code, message: err.message };
+      }
+      throw err;
+    }
   }
 
   /** 服务面调用（typed 方法名由调用方从 protocol/methods 传入） */
-  async service<R = unknown>(method: string, payload?: Record<string, unknown>): Promise<R> {
+  async service<R = unknown>(method: string, payload?: object): Promise<R> {
     return postJson<R>(endpointService(this.base, method), payload ?? {}, this.auth);
   }
 
+  /**
+   * 上传附件 → ContentRef（sha256 === content_id）。命令中只传 ContentRef，
+   * 绝不传本地路径（§3.9）。
+   */
   async uploadContent(file: File, signal?: AbortSignal): Promise<ContentRef> {
     const form = new FormData();
-    form.append('file', file, file.name);
+    form.append('seed', this.currentSeed ?? '');
+    form.append('media_type', file.type || 'application/octet-stream');
+    form.append('content', file, file.name);
     const res = await fetch(endpointContent(this.base), {
       method: 'POST',
       headers: authHeaders(this.auth),
@@ -378,6 +444,11 @@ export class RingingClient {
       signal,
     });
     if (!res.ok) throw new HttpError(res.status, undefined);
-    return (await res.json()) as ContentRef;
+    const uploaded = (await res.json()) as ContentUploadResponse;
+    return {
+      content_id: uploaded.content_id,
+      sha256: uploaded.sha256 ?? uploaded.content_id,
+      media_type: uploaded.media_type,
+    };
   }
 }

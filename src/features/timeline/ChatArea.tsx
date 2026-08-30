@@ -1,6 +1,6 @@
 /**
- * 聊天区（PLAN M3）：timeline 投影渲染 + 吸底滚动 + 顶部翻页
- * （分页走 before_turn 服务端分页，禁止本地"加载更多"猜测 N6）+ 流式 overlay。
+ * 聊天区（PLAN M3）：原生 timeline turn 序列渲染 + 吸底滚动 + 顶部上翻
+ * （before_turn 快照分页，禁 load_more 命令 N6）+ provider 重试/中止提示。
  */
 import { useEffect, useRef, useState } from 'react';
 import { Button, Spinner, Text } from '@fluentui/react-components';
@@ -8,8 +8,7 @@ import { ArrowDownRegular, ChatRegular } from '@fluentui/react-icons';
 import { getController, useTimelineState } from '../../state/timeline';
 import { useStore } from '../../state/store';
 import { settingsStore } from '../../state/settings';
-import { MessageBubble, StreamingAssistantBubble } from './MessageBubble';
-import { ToolCard } from '../tools/ToolCard';
+import { TurnView } from './MessageBubble';
 
 const STICK_THRESHOLD_PX = 64;
 
@@ -31,22 +30,28 @@ export function ChatArea({ seed }: { seed: string }) {
   const onScroll = (): void => {
     stickRef.current = atBottom();
     setShowJump(!stickRef.current);
-    // 顶部翻页（服务端 before_turn 分页）
+    // 顶部上翻（服务端 before_turn 快照分页）
     const el = scrollRef.current;
-    if (el && el.scrollTop < 64 && tl && tl.hasMore && !tl.loadingOlder && tl.items.length > 0) {
+    if (el && el.scrollTop < 64 && tl && tl.hasMore && !tl.loadingOlder && tl.turns.length > 0) {
       void getController(seed)?.loadOlder(pageSize);
     }
   };
 
-  // 新内容到达时按需吸底
-  const lastSeq = tl?.items.length ? tl.items[tl.items.length - 1]!.seq : 0;
+  // 新内容到达时按需吸底：turn 数或最后一个 turn 的块结构变化都触发
+  const turnsLen = tl?.turns.length ?? 0;
+  const lastTurn = tl?.turns[turnsLen - 1];
+  const lastSignature = lastTurn
+    ? `${lastTurn.turn_id}:${lastTurn.rounds.length}:${
+        lastTurn.rounds[lastTurn.rounds.length - 1]?.blocks.length ?? 0
+      }:${lastTurn.rounds[lastTurn.rounds.length - 1]?.blocks.map((b) => b.text.length).join(',')}`
+    : '';
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (stickRef.current && autoScroll) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [lastSeq, tl?.streamingText, autoScroll]);
+  }, [turnsLen, lastSignature, autoScroll]);
 
   if (!tl || tl.status === 'loading') {
     return (
@@ -86,23 +91,26 @@ export function ChatArea({ seed }: { seed: string }) {
             </div>
           )}
 
-          {tl.items.map((item) =>
-            item.kind === 'message' ? (
-              <MessageBubble key={item.seq} item={item} />
-            ) : (
-              <ToolCard key={item.seq} item={item} rawOutput={rawToolOutput} />
-            ),
+          {tl.turns.map((turn) => (
+            <TurnView key={turn.turn_id} turn={turn} rawToolOutput={rawToolOutput} />
+          ))}
+
+          {tl.providerRetry && (
+            <div className="load-older">
+              <Text size={200}>
+                模型请求重试中（{tl.providerRetry.attempt}/{tl.providerRetry.maxRetries}，将等待{' '}
+                {tl.providerRetry.delaySecs}s）：{tl.providerRetry.message}
+              </Text>
+            </div>
           )}
 
-          {tl.streamingText.length > 0 && <StreamingAssistantBubble text={tl.streamingText} />}
-
-          {tl.abortedNote && tl.activeTurn === null && tl.streamingText.length === 0 && (
+          {tl.abortedNote && tl.activeTurnId === null && (
             <div className="load-older">
               <Text size={200}>⏹ 该回合已被中止</Text>
             </div>
           )}
 
-          {tl.items.length === 0 && tl.streamingText.length === 0 && tl.status === 'ready' && <EmptyHint />}
+          {tl.turns.length === 0 && tl.status === 'ready' && <EmptyHint />}
         </div>
       </div>
 
@@ -133,9 +141,7 @@ function EmptyHint() {
         <Text size={300} weight="semibold">
           开始对话
         </Text>
-        <Text size={200}>
-          发送任意消息开始；包含「搜索」「文件」「失败」「长」的消息会触发不同形态的工具卡片与长文本流式渲染。
-        </Text>
+        <Text size={200}>发送任意消息开始与 agent 对话；工具调用会以卡片形式实时展示进度与结果。</Text>
       </div>
     </div>
   );

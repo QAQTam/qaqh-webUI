@@ -48,9 +48,9 @@ export function ConnectionBadge({ client }: { client: RingingClient }) {
       <Badge appearance="filled" color={COLORS[state]} size="small">
         {LABELS[state]}
       </Badge>
-      {epoch > 0 && (
+      {epoch && (
         <Text size={200} className={cls.epoch}>
-          epoch {epoch}
+          epoch {epoch.slice(0, 8)}
         </Text>
       )}
     </div>

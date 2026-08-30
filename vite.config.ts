@@ -14,7 +14,13 @@ export default defineConfig({
     proxy: daemonUrl
       ? {
           '/ringing': { target: daemonUrl, changeOrigin: false },
-          '/__qaqh_bridge__.js': { target: daemonUrl, changeOrigin: false },
+          // daemon 把桥脚本挂在 /debug/ 前缀下；dev 代理模式页面在根路径，
+          // bridge.ts 相对注入 ./__qaqh_bridge__.js → 重写到 daemon 的真实路径
+          '/__qaqh_bridge__.js': {
+            target: daemonUrl,
+            changeOrigin: false,
+            rewrite: () => '/debug/__qaqh_bridge__.js',
+          },
         }
       : undefined,
   },

@@ -1,6 +1,6 @@
 /**
  * 对话管理侧栏（PLAN M5）：服务面 session.list + 生命周期命令（N5）。
- * 新建 / 搜索 / 切换 / 重命名 / 删除；活跃会话高亮；相对时间元信息。
+ * 新建 / 搜索 / 切换 / 归档 / 删除；标题由 daemon 自动生成（协议无 rename 命令）。
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import {
@@ -25,15 +25,22 @@ import {
 } from '@fluentui/react-components';
 import {
   AddRegular,
+  ArchiveRegular,
   ChatMultipleRegular,
   DeleteRegular,
-  EditRegular,
   MoreHorizontalRegular,
   SearchRegular,
   SettingsRegular,
 } from '@fluentui/react-icons';
 import type { RingingClient } from '../../daemon/client';
-import { createSession, deleteSession, renameSession, setActiveSeed, sessionsStore } from '../../state/sessions';
+import {
+  archiveSession,
+  createSession,
+  deleteSession,
+  setActiveSeed,
+  sessionsStore,
+  unarchiveSession,
+} from '../../state/sessions';
 import { useStore } from '../../state/store';
 import { formatRelativeTime } from '../../utils/format';
 
@@ -69,13 +76,14 @@ export function Sidebar(props: {
   const list = useStore(sessionsStore, (s) => s.list);
   const loading = useStore(sessionsStore, (s) => s.loading);
   const [query, setQuery] = useState('');
-  const [renaming, setRenaming] = useState<{ seed: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState<{ seed: string; title: string } | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((s) => s.title.toLowerCase().includes(q));
+    return list.filter(
+      (s) => (s.title ?? '').toLowerCase().includes(q) || s.last_summary.toLowerCase().includes(q),
+    );
   }, [list, query]);
 
   const handleNew = (): void => {
@@ -147,64 +155,24 @@ export function Sidebar(props: {
           <ConversationItem
             key={s.seed}
             seed={s.seed}
-            title={s.title}
+            title={s.title ?? s.last_summary.split('\n')[0] ?? ''}
             updatedAt={s.updated_at}
+            archived={s.archived}
+            running={s.running}
             active={s.seed === activeSeed}
             onSelect={() => {
               setActiveSeed(s.seed);
               onSelect(s.seed);
               onCloseMobile?.();
             }}
-            onRename={() => setRenaming({ seed: s.seed, title: s.title })}
-            onDelete={() => setDeleting({ seed: s.seed, title: s.title })}
+            onArchive={() => void archiveSession(client, s.seed)}
+            onUnarchive={() => void unarchiveSession(client, s.seed)}
+            onDelete={() => setDeleting({ seed: s.seed, title: s.title ?? s.seed })}
           />
         ))}
       </nav>
 
       <div className="sidebar-footer">{props.footer}</div>
-
-      {/* 重命名 */}
-      <Dialog
-        open={renaming !== null}
-        onOpenChange={(_, data) => {
-          if (!data.open) setRenaming(null);
-        }}
-      >
-        <DialogSurface aria-modal="true">
-          <DialogBody>
-            <DialogTitle>重命名会话</DialogTitle>
-            <DialogContent>
-              <Input
-                value={renaming?.title ?? ''}
-                onChange={(_, data) => setRenaming((r) => (r ? { ...r, title: data.value } : r))}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && renaming) {
-                    void renameSession(client, renaming.seed, renaming.title.trim() || '未命名会话');
-                    setRenaming(null);
-                  }
-                }}
-                aria-label="会话名称"
-              />
-            </DialogContent>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setRenaming(null)}>
-                取消
-              </Button>
-              <Button
-                appearance="primary"
-                disabled={!renaming || renaming.title.trim() === ''}
-                onClick={() => {
-                  if (!renaming) return;
-                  void renameSession(client, renaming.seed, renaming.title.trim() || '未命名会话');
-                  setRenaming(null);
-                }}
-              >
-                保存
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
 
       {/* 删除确认 */}
       <Dialog
@@ -217,7 +185,7 @@ export function Sidebar(props: {
           <DialogBody>
             <DialogTitle>删除会话</DialogTitle>
             <DialogContent>
-              确定删除「{deleting?.title}」？该会话的 timeline 将不可恢复。
+              确定删除「{deleting?.title}」？该会话的 transcript 将从磁盘移除，不可恢复。
             </DialogContent>
             <DialogActions>
               <Button appearance="secondary" onClick={() => setDeleting(null)}>
@@ -245,10 +213,13 @@ export function Sidebar(props: {
 function ConversationItem(props: {
   seed: string;
   title: string;
-  updatedAt: string;
+  updatedAt: number;
+  archived: boolean;
+  running: boolean;
   active: boolean;
   onSelect: () => void;
-  onRename: () => void;
+  onArchive: () => void;
+  onUnarchive: () => void;
   onDelete: () => void;
 }) {
   const cls = useClasses();
@@ -271,8 +242,14 @@ function ConversationItem(props: {
     >
       <ChatMultipleRegular fontSize={16} />
       <span className="conv-text">
-        <span className="conv-title">{props.title}</span>
-        <span className="conv-meta">{formatRelativeTime(props.updatedAt)}</span>
+        <span className="conv-title">
+          {props.title || '未命名会话'}
+          {props.running ? ' ·' : ''}
+        </span>
+        <span className="conv-meta">
+          {props.archived ? '已归档 · ' : ''}
+          {formatRelativeTime(props.updatedAt)}
+        </span>
       </span>
       <span
         className="conv-menu"
@@ -292,9 +269,15 @@ function ConversationItem(props: {
           </MenuTrigger>
           <MenuPopover>
             <MenuList>
-              <MenuItem icon={<EditRegular />} onClick={props.onRename}>
-                重命名
-              </MenuItem>
+              {props.archived ? (
+                <MenuItem icon={<ChatMultipleRegular />} onClick={props.onUnarchive}>
+                  恢复会话
+                </MenuItem>
+              ) : (
+                <MenuItem icon={<ArchiveRegular />} onClick={props.onArchive}>
+                  归档
+                </MenuItem>
+              )}
               <MenuItem icon={<DeleteRegular />} onClick={props.onDelete}>
                 删除
               </MenuItem>

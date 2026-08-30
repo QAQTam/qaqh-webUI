@@ -24,8 +24,8 @@ import {
 import { ArrowClockwiseRegular, ArrowLeftRegular, WarningRegular } from '@fluentui/react-icons';
 import type { RingingClient } from '../../daemon/client';
 import { useStore } from '../../state/store';
-import { settingsStore, updateSettings, CONFIG_KEYS, type ThemeMode } from '../../state/settings';
-import { READ_METHODS, WRITE_METHODS, DEV_ONLY_METHODS } from '../../protocol/methods';
+import { settingsStore, updateSettings, type ThemeMode } from '../../state/settings';
+import { READ_METHODS, WRITE_METHODS, MOCK_ONLY_METHODS } from '../../protocol/methods';
 import { RINGING_SCHEMA as PROTO_SCHEMA, RINGING_VERSION as PROTO_VERSION } from '../../protocol/types';
 import { ConnectionBadge } from '../../ui/ConnectionBadge';
 import { APP_INFO, APP_VERSION } from '../../utils/version';
@@ -211,7 +211,7 @@ function ConnectionSection({ client }: { client: RingingClient }) {
         </div>
         <Button
           appearance="secondary"
-          onClick={() => void client.service(DEV_ONLY_METHODS.debugResetEpoch).catch(() => undefined)}
+          onClick={() => void client.service(MOCK_ONLY_METHODS.debugResetEpoch).catch(() => undefined)}
         >
           触发
         </Button>
@@ -290,8 +290,8 @@ function SessionsSection() {
         />
       </div>
       <div className="settings-row-desc" style={{ padding: '0 4px' }}>
-        配置键位：{Object.values(CONFIG_KEYS).join('、')}（经服务面 {READ_METHODS.configGet} /{' '}
-        {WRITE_METHODS.configSet} 读写）
+        主题经服务面 {READ_METHODS.configLoad} / {WRITE_METHODS.configSave} 持久化到 daemon 配置；
+        其余为本地 UI 偏好（不包含任何凭据）。
       </div>
     </div>
   );
@@ -303,12 +303,12 @@ function SessionsSection() {
 
 function AboutSection({ client }: { client: RingingClient }) {
   const cls = useClasses();
-  const [workspace, setWorkspace] = useState('…');
+  const [daemonVersion, setDaemonVersion] = useState('…');
   useEffect(() => {
     client
-      .service<{ name: string; version: string }>(READ_METHODS.workspaceInfo)
-      .then((w) => setWorkspace(`${w.name} ${w.version}`))
-      .catch(() => setWorkspace('不可用'));
+      .service<string>(READ_METHODS.daemonVersion)
+      .then((v) => setDaemonVersion(typeof v === 'string' ? v : JSON.stringify(v)))
+      .catch(() => setDaemonVersion('不可用'));
   }, [client]);
 
   return (
@@ -316,7 +316,7 @@ function AboutSection({ client }: { client: RingingClient }) {
       <Text className={cls.sectionTitle}>版本信息</Text>
       <div className="kv-list">
         <KvRow k="前端" v={`qaqh-webui ${APP_VERSION}`} />
-        <KvRow k="daemon" v={workspace} />
+        <KvRow k="daemon" v={daemonVersion} />
         <KvRow k="协议" v={`${PROTO_SCHEMA} v${PROTO_VERSION}`} />
         <KvRow
           k="技术栈"

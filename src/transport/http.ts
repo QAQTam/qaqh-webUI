@@ -12,14 +12,18 @@ export interface AuthHeaders {
 }
 
 export class HttpError extends Error {
+  /** 原始 JSON 错误体（ack 形状的 rejected 载荷等），供调用方解析 */
+  public readonly body?: unknown;
   constructor(
     public readonly status: number,
     public readonly code: ServiceErrorCode | undefined,
     message?: string,
+    body?: unknown,
   ) {
     // 注意：message 不携带任何请求头内容（N3 禁止 token 进日志）
     super(message ?? `HTTP ${status}${code ? ` (${code})` : ''}`);
     this.name = 'HttpError';
+    this.body = body;
   }
 }
 
@@ -74,17 +78,20 @@ export async function ringingFetch(
 async function toHttpError(res: Response): Promise<HttpError> {
   let code: ServiceErrorCode | undefined;
   let message: string | undefined;
+  let body: unknown;
   const contentType = res.headers.get('content-type') ?? '';
   if (contentType.includes('application/json')) {
     try {
-      const body = (await res.json()) as Partial<ServiceErrorBody>;
-      code = body.error;
-      message = body.message;
+      // daemon 错误体字段为 code（§4 字典）；兼容 error 命名
+      const parsed = (await res.json()) as Partial<ServiceErrorBody> & { error?: string };
+      body = parsed;
+      code = (parsed.code ?? parsed.error) as ServiceErrorCode | undefined;
+      message = parsed.message;
     } catch {
       // 错误体非 JSON：仅用状态码
     }
   }
-  return new HttpError(res.status, code, message);
+  return new HttpError(res.status, code, message, body);
 }
 
 export async function postJson<T>(url: string, body: unknown, auth: AuthHeaders, options?: RequestOptions): Promise<T> {
