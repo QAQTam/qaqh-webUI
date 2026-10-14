@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "QAQ-Harness webUI（qaqh.Ringing 协议前端）",
+  "license": "MIT OR Apache-2.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
